@@ -8,6 +8,8 @@
 #include <time.h>
 #include <stdio.h>
 #include <math.h>
+#include <sys/select.h>
+#include <errno.h>
 
 #include "hra.h"
 
@@ -37,8 +39,9 @@ int main() {
 
     char input;
     char buf[BUFFER];
+    time_t client_disconnect_time = 0;
+    bool client_connected = true;
 
-    printf("[SERVER DEBUG] started main loop\n");
 
     while (1) {
         if (!game.inGame) {
@@ -46,11 +49,10 @@ int main() {
                 time_t now = time(NULL);
                 if (difftime(now, game.initTIme) >= 10 && game.mode == '1') {
                     printf("[SERVER DEBUG] sending timeout after 10 sek\n");
-                    if(game.end == true){
+                    if(game.end == true || !client_connected){
                         break;
                     }
                     send(client, "TIMEOVER\n", 9, 0);
-                    printf("[SERVER DEBUG] sending timeout after 10 sek\n");
                     reset_game(&game);
                     game.initTIme = time(NULL);
                     continue;
@@ -63,7 +65,7 @@ int main() {
                     elapsed, game.maxTime);
 
                 if (elapsed >= game.maxTime) {
-                    if(game.end == true){
+                    if(game.end == true || !client_connected){
                         break;
                     }
                     send(client, "TIMEOVER\n", 9, 0);
@@ -72,13 +74,42 @@ int main() {
                 }
             }
             }
+
+            fd_set rfds;
+            struct timeval tv;
+
+            FD_ZERO(&rfds);
+            FD_SET(client, &rfds);
+
+            // čakaj max 100 ms
+            tv.tv_sec = 0;
+            tv.tv_usec = 100000;
+
+            int ret = select(client + 1, &rfds, NULL, NULL, &tv);
             
-            if (recv(client, &game.menuSelect, 1, 0) <= 0) {
-                game.menuSelect = '0';
-                sleep(1);
+            if (ret > 0 && FD_ISSET(client, &rfds)) {
+                int recv_ret = recv(client, &game.menuSelect, 1, 0);
+                if (recv_ret <= 0) {
+                    // Klient sa odpojil
+                    if (client_connected) {
+                        client_connected = false;
+                        client_disconnect_time = time(NULL);
+                        printf("[SERVER DEBUG] Klient sa odpojil, čakam 10 sekúnd...\n");
+                        game.menuSelect = '0';
+                    }
+                }
+            }
+            
+            // Kontrola timeout po odpojení klienta
+            if (!client_connected) {
+                time_t now = time(NULL);
+                if (difftime(now, client_disconnect_time) >= 10) {
+                    printf("[SERVER DEBUG] Timeout po 10 sekundách bez klienta, vypinam server\n");
+                    break;
+                }
             }
 
-            printf("[SERVER DEBUG] received menuSelect='%c' paused=%d inGame=%d\n", game.menuSelect, game.paused, game.inGame);
+            //printf("[SERVER DEBUG] received menuSelect='%c' paused=%d inGame=%d\n", game.menuSelect, game.paused, game.inGame);
             if (game.menuSelect == '1'){
                 receive_menu(client, &game);
                 init_game(&game);
@@ -89,13 +120,13 @@ int main() {
             } else if (game.menuSelect == '2' && game.gameCreate == true){
                 game.inGame = true;
                 printf("[SERVER DEBUG] start new connection: inGame=%d paused=%d length=%d\n", game.inGame, game.paused, game.length);
-                send_state(client, &game);
+                if (client_connected) send_state(client, &game);
             } else if (game.menuSelect == '3'){
                 printf("[SERVER DEBUG] resume requested (paused=%d)\n", game.paused);
                 if (game.paused) {
                     time_t now = time(NULL);
                     game.pausedSeconds += (int)(now - game.pauseStart);
-                    game.paused = false;
+                    game.paused = true;
                     game.inGame = true;
                     printf("[SERVER DEBUG] resumed game: inGame=%d paused=%d\n", game.inGame, game.paused);
                     printf("[DEBUG] pauza trvala %d sekúnd, spolu pauzy=%d\n",
@@ -109,18 +140,29 @@ int main() {
                 }
             }
         } else {
-            if (recv(client, &input, 1, MSG_DONTWAIT) > 0) {
+            if(game.paused == true){
+                sleep(3);
+                game.paused = false;
+            }
+
+            int recv_game = recv(client, &input, 1, MSG_DONTWAIT);
+            if (recv_game < 0 && errno != EAGAIN) {
+                client_connected = false;
+                client_disconnect_time = time(NULL);
+                printf("[SERVER DEBUG] Klient sa odpojil počas hry\n");
+            }
+            if (recv_game > 0) {
                 if (input == 'p') {
                     game.pauseStart = time(NULL);
                     game.paused = true;
                     game.inGame = false;
                     printf("[SERVER DEBUG] pausing game and sending PAUSE\n");
-                    send(client, "PAUSE\n", 6, 0); 
+                    if (client_connected) send(client, "PAUSE\n", 6, 0); 
                     continue;
                 }
                 if (input == 'q') {
                     reset_game(&game);
-                    send(client, "QUIT\n", 5, 0);
+                    if (client_connected) send(client, "QUIT\n", 5, 0);
                     printf("[SERVER DEBUG] quting game and sending PAUSE\n");
                     continue;
                 }
@@ -129,13 +171,13 @@ int main() {
             }
             move_snake(&game);
             if(checkSelfCollision(&game)) {
-                send(client, "GAMEOVER\n", 9, 0);
+                if (client_connected) send(client, "GAMEOVER\n", 9, 0);
                 reset_game(&game);
                 //game.inGame = false;
                 //continue;
             }
             if (game.world == '2' && checkObjectCollision(&game)) {
-                send(client, "GAMEOVER\n", 9, 0);
+                if (client_connected) send(client, "GAMEOVER\n", 9, 0);
                 reset_game(&game);
             }
             if (game.mode == '2') {

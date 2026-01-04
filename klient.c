@@ -13,41 +13,36 @@
 #define BUFFER_SIZE 1024
 
 
-void* input_thread(void* arg) {//vstup od pouzi a posielanie na server
-    Game* game = (Game*)arg;
-    char command;
-    char buf[BUFFER];
+void* input_thread(void* arg) {
+    Game* game = arg;
+    char c;
 
-    while (game->showMenu == false) {
-      pthread_mutex_lock(&game->lock);
-        char c;
-            if (read(STDIN_FILENO, &c, 1) > 0){
+    while (game->running) {
+        if (read(STDIN_FILENO, &c, 1) > 0) {
+            pthread_mutex_lock(&game->lock);
+
+            if (!game->showMenu && game->gameStat == GAME_STATE_PLAYING) {
                 send(game->socket_fd, &c, 1, 0);
 
-            } // w, a, s, d
-      pthread_mutex_unlock(&game->lock);
+                if (c == 'p') {
+                    game->gameStat = GAME_STATE_PAUSED;
+                }
+            }
 
-        send(game->socket_fd, &command, sizeof(command), 0);
+            pthread_mutex_unlock(&game->lock);
+        }
     }
     return NULL;
 }
-void* receive_thread(void* arg) {
+void* recv_thread(void* arg) {
     Game* game = arg;
     char buf[BUFFER];
-    int lastX = -1, lastY = -1;
 
-    while (1) {
-        pthread_mutex_lock(&game->lock);
-        if (game->showMenu || game->gameStat == GAME_STATE_CANCEL) {
-            pthread_mutex_unlock(&game->lock);
-            break;
-        }
-        pthread_mutex_unlock(&game->lock);
-
-        int n = recv(game->socket_fd, buf, BUFFER - 1, MSG_DONTWAIT);
+    while (game->running) {
+        int n = recv(game->socket_fd, buf, BUFFER - 1, 0);
         if (n <= 0) {
-            usleep(10000);
-            continue;
+            game->running = 0;
+            break;
         }
 
         buf[n] = 0;
@@ -55,117 +50,147 @@ void* receive_thread(void* arg) {
         pthread_mutex_lock(&game->lock);
         readData(game, buf);
 
-        if (game->objects && game->obj > 0) {
-            if (game->objects[0].x != lastX ||
-                game->objects[0].y != lastY) {
-
-                lastX = game->objects[0].x;
-                lastY = game->objects[0].y;
-                pthread_mutex_unlock(&game->lock);
-                printGame(game);
-                continue;
-            }
+        if (game->gameStat == GAME_STATE_CANCEL) {
+            game->running = 0;
         }
         pthread_mutex_unlock(&game->lock);
     }
     return NULL;
 }
 
-int main(int argc, char *argv[])
-{
-  int client_fd;
-  client_fd = socket(AF_INET, SOCK_STREAM, 0);
-  if(client_fd <0){
-    perror("Vytvorenie socketu zlyhalo");
-    return -1;
-  }
-  printf("Socet vytvoreny\n");
+const char* gameStateToString(GameState state) {
+    switch (state) {
+        case GAME_STATE_GAMENOCREATE:       return "GAMENOCREATE";
+        case GAME_STATE_GAMECREATE: return "GAMECREATE";
+        case GAME_STATE_PLAYING:    return "PLAYING";
+        case GAME_STATE_PAUSED:     return "PAUSED";
+        case GAME_STATE_DELAY:      return "DELAY";
+        case GAME_STATE_CANCEL:     return "CANCEL";
+        default:                    return "UNKNOWN";
+    }
+}
 
-  //nastavenie ip adresu servera
-  struct sockaddr_in server_addr;
-  memset(&server_addr, 0, sizeof(server_addr));
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(PORT);
-if(inet_pton(AF_INET, "127.0.0.1", (struct sockaddr*)&server_addr.sin_addr) < 0){
-  perror("Neplatna adresa");
-  close(client_fd);
-  return -2;
-  }
-  
-
-  if(connect(client_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0){
-    perror("Pripojenie zlyhalo");
-    close(client_fd);
-    return -3;
-  }
-
-  char buffer[BUFFER_SIZE];
+int main() {
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        perror("socket");
+        return 1;
+    }
 
     Game game;
-    game.socket_fd = client_fd;
+    memset(&game, 0, sizeof(game));
+    game.socket_fd = sock;
     game.running = 1;
-    initGame(&game);
+    game.showMenu = true;
+
     pthread_mutex_init(&game.lock, NULL);
+    initGame(&game);
+
+    pthread_t t_input, t_recv;
+    bool isConnected = false;
+
     char buf[BUFFER];
-    while (1) {
+    while(1){
+    while (game.showMenu) {
         system("clear");
+        show_menu(&game, buf);
 
-        if(game.showMenu == true ){
-            show_menu(&game, buf);
-            send(game.socket_fd, &game.menuSelect, sizeof(game.menuSelect), 0);
-            printf("[CLIENT DEBUG] sent initial menuSelect='%c'\n", game.menuSelect);
-
-            if (game.menuSelect == '1'){
-                memset(buf, 0, sizeof(buf));
-                snprintf(buf, BUFFER,
-                "MODE=%c\nWORLD=%c\nWIDTH=%d\nHEIGHT=%d\nTIME=%d\n",
-                game.mode, game.world, game.width, game.height, game.time);
-                send(game.socket_fd, buf, strlen(buf), 0);
-                game.gameStat = GAME_STATE_GAMECREATE;
-                
-            } else if (game.menuSelect == '2' && game.gameStat == GAME_STATE_GAMECREATE){
-                game.gameStat = GAME_STATE_PLAYING;
-                raw_on();
-                printf("[CLIENT DEBUG] joined game (new) inGame=%d\n", game.gameStat);
-                game.showMenu = false;
-
-            } else if (game.menuSelect == '3' && game.gameStat == GAME_STATE_PAUSED){
-                send(game.socket_fd, &game.menuSelect, 1, 0);
-                printf("[CLIENT DEBUG] sent resume request menuSelect='%c'\n", game.menuSelect);
-                raw_on();
-                game.gameStat = GAME_STATE_DELAY; 
-                printf("[CLIENT DEBUG] resume: inGame=%d\n", game.gameStat);
-                game.showMenu = false;
-
-            } else if (game.menuSelect == '4'){
-                break;
-            }
+        if(isConnected){
+            send(sock, &game.menuSelect, 1, 0);
         }
-        if(game.showMenu == false ){
-            if (game.gameStat == GAME_STATE_DELAY)
-            {
-                printGame(&game);
-                sleep(3);
-                game.gameStat = GAME_STATE_PLAYING;
-                continue;
 
+        if (game.menuSelect == '1') {
+            if(isConnected == false){
+
+                pid_t pid = fork();
+
+                if (pid < 0) {
+                    perror("fork");
+                    exit(1);
+                }
+
+                if (pid == 0) {
+                    // CHILD → SERVER
+                    execl("./server", "server", NULL);
+                    perror("exec failed");
+                    exit(1);
+                }
+
+                sleep(1); 
+
+                struct sockaddr_in server = {0};
+                server.sin_family = AF_INET;
+                server.sin_port = htons(PORT);
+                inet_pton(AF_INET, "127.0.0.1", &server.sin_addr);
+
+                if (connect(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
+                    perror("connect");
+                    return 1;
+                }
+                isConnected = true;
             }
+            snprintf(buf, BUFFER,
+                "MODE=%c\nWORLD=%c\nWIDTH=%d\nHEIGHT=%d\nTIME=%d\n",
+                game.mode, game.world,
+                game.width, game.height, game.time);
+            send(sock, buf, strlen(buf), 0);
+            game.gameStat = GAME_STATE_GAMECREATE;
+        }
+        else if (game.menuSelect == '2' &&
+                 game.gameStat == GAME_STATE_GAMECREATE) {
 
-            pthread_t t_send, t_recv;
-
-            pthread_create(&t_send, NULL, input_thread, &game);
-            pthread_create(&t_recv, NULL, receive_thread, &game);
-
-            pthread_join(t_send, NULL);
-            pthread_join(t_recv, NULL);
+            game.gameStat = GAME_STATE_PLAYING;
+            game.showMenu = false;
+        }
+        else if (game.menuSelect == '4') {
+            snprintf(buf, BUFFER,
+                "QUIT=%c\n",
+                1);
+            send(sock, buf, strlen(buf), 0);
+            close(sock);
+            return 0;
         }
     }
+    raw_on();
+
+    game.running = 1;
+    pthread_create(&t_input, NULL, input_thread, &game);
+    pthread_create(&t_recv, NULL, recv_thread, &game);
+
+    while (game.running) {
+        pthread_mutex_lock(&game.lock);
+
+        system("clear");
+        //printf("gamestat: %s\n", gameStateToString(game.gameStat));
+
+        if(game.gameStat == GAME_STATE_PLAYING){
+            printGame(&game);
+        }
+
+        if (game.gameStat == GAME_STATE_DELAY) {
+            pthread_mutex_unlock(&game.lock);
+            sleep(3);
+            pthread_mutex_lock(&game.lock);
+            game.gameStat = GAME_STATE_PLAYING;
+        }
+
+        pthread_mutex_unlock(&game.lock);
+        usleep(16000); 
+    }
+
+    pthread_join(t_input, NULL);
+    pthread_join(t_recv, NULL);
+
+
+  }
+    raw_off();
+
     if (game.objects) {
         free(game.objects);
-        game.objects = NULL;
     }
-  raw_off();
-  close(client_fd);
-  printf("Klient ukonceny\n");
-  return 0;
+
+    pthread_mutex_destroy(&game.lock);
+    close(sock);
+
+    return 0;
 }
