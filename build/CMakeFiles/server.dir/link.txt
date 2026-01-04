@@ -1,0 +1,1 @@
+/usr/bin/cc -g CMakeFiles/server.dir/server.c.o CMakeFiles/server.dir/hra.c.o -o server  -lpthread -lm 

@@ -1,0 +1,4 @@
+/home/kubista1/semestralnaPraca/build/CMakeFiles/server.dir
+/home/kubista1/semestralnaPraca/build/CMakeFiles/klient.dir
+/home/kubista1/semestralnaPraca/build/CMakeFiles/edit_cache.dir
+/home/kubista1/semestralnaPraca/build/CMakeFiles/rebuild_cache.dir

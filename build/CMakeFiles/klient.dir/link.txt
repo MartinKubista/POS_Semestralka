@@ -1,0 +1,1 @@
+/usr/bin/cc -g CMakeFiles/klient.dir/klient.c.o CMakeFiles/klient.dir/hrac.c.o -o klient  -lpthread 
