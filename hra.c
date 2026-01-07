@@ -44,8 +44,6 @@ void init_game(Game *g) {
     g->snake[0].y = g->height / 2;
     g->dir = 'd';
     g->menuSelect = '0';
-    g->paused = false;
-    g->pausedSeconds = 0;
     g->inGame = false;
     g->gameCreate = false;
     g->end = false;
@@ -141,7 +139,6 @@ void outOfWorld(Game *g) {
 }
 
 void reset_game(Game *g) {
-    g->paused = false;
     g->length = 0;
     g->dir = 'd';
     g->inGame = false;
@@ -149,7 +146,6 @@ void reset_game(Game *g) {
     g->lastDir = 'd';
     g->menuSelect = '0';
     g->initTIme = time(NULL);
-    g->pausedSeconds = 0;
     g->clientDisconnect = 0;
 
     if (g->objects) {
@@ -217,7 +213,9 @@ void send_state(int client, Game *g) {
 
 void receive_menu(int client, Game *game) {
     char buf[BUFFER];
-    recv(client, buf, BUFFER, 0);
+    int n = recv(client, buf, BUFFER - 1, 0);
+    if (n <= 0) return;
+    buf[n] = '\0';
 
     char *line = strtok(buf, "\n");
     while (line) {

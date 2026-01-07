@@ -24,9 +24,6 @@ void* input_thread(void* arg) {
             if (!game->showMenu && game->gameStat == GAME_STATE_PLAYING) {
                 send(game->socket_fd, &c, 1, 0);
 
-                if (c == 'p') {
-                    game->gameStat = GAME_STATE_PAUSED;
-                }
             }
 
             pthread_mutex_unlock(&game->lock);
@@ -56,18 +53,6 @@ void* recv_thread(void* arg) {
         pthread_mutex_unlock(&game->lock);
     }
     return NULL;
-}
-
-const char* gameStateToString(GameState state) {
-    switch (state) {
-        case GAME_STATE_GAMENOCREATE:       return "GAMENOCREATE";
-        case GAME_STATE_GAMECREATE: return "GAMECREATE";
-        case GAME_STATE_PLAYING:    return "PLAYING";
-        case GAME_STATE_PAUSED:     return "PAUSED";
-        case GAME_STATE_DELAY:      return "DELAY";
-        case GAME_STATE_CANCEL:     return "CANCEL";
-        default:                    return "UNKNOWN";
-    }
 }
 
 int main() {
@@ -110,7 +95,6 @@ int main() {
                 }
 
                 if (pid == 0) {
-                    // CHILD → SERVER
                     execl("./server", "server", NULL);
                     perror("exec failed");
                     exit(1);
@@ -128,6 +112,8 @@ int main() {
                     return 1;
                 }
                 isConnected = true;
+                
+                send(sock, &game.menuSelect, 1, 0);
             }
             snprintf(buf, BUFFER,
                 "MODE=%c\nWORLD=%c\nWIDTH=%d\nHEIGHT=%d\nTIME=%d\n",
@@ -142,7 +128,7 @@ int main() {
             game.gameStat = GAME_STATE_PLAYING;
             game.showMenu = false;
         }
-        else if (game.menuSelect == '4') {
+        else if (game.menuSelect == '3') {
             snprintf(buf, BUFFER,
                 "QUIT=%c\n",
                 1);
@@ -161,17 +147,9 @@ int main() {
         pthread_mutex_lock(&game.lock);
 
         system("clear");
-        //printf("gamestat: %s\n", gameStateToString(game.gameStat));
 
         if(game.gameStat == GAME_STATE_PLAYING){
             printGame(&game);
-        }
-
-        if (game.gameStat == GAME_STATE_DELAY) {
-            pthread_mutex_unlock(&game.lock);
-            sleep(3);
-            pthread_mutex_lock(&game.lock);
-            game.gameStat = GAME_STATE_PLAYING;
         }
 
         pthread_mutex_unlock(&game.lock);
@@ -187,6 +165,7 @@ int main() {
 
     if (game.objects) {
         free(game.objects);
+        game.objects = NULL;
     }
 
     pthread_mutex_destroy(&game.lock);

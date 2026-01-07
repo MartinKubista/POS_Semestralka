@@ -12,17 +12,16 @@
 static struct termios oldt;
 static int oldf;
 
-//chat
 void raw_on() {
     struct termios newt;
     tcgetattr(STDIN_FILENO, &oldt);
     newt = oldt;
-    newt.c_lflag &= ~(ICANON | ECHO);//ICANON - bez enteru, ECHO - vypnutie zobrazenia znakov na obrazovke
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt); //Nastaví nové vlastnosti terminálu
-    oldf = fcntl(STDIN_FILENO, F_GETFL);//uloženie flagov do oldf
-    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);//ak sa nič nestlačí nečaká a hned vráti chybu -1
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt); 
+    oldf = fcntl(STDIN_FILENO, F_GETFL);
+    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
 }
-//chat
+
 void raw_off() {
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     fcntl(STDIN_FILENO, F_SETFL, oldf);
@@ -63,17 +62,13 @@ void show_menu(Game *game, char buf[]) {
     if (game->gameStat == GAME_STATE_GAMECREATE) {
         printf("Stlacte 2: Pre pripojenie sa do hry\n");
     }
-    if (game->gameStat == GAME_STATE_PAUSED) {
-        printf("Stlacte 3: Pre pokracovanie hry\n");
-    }
-    printf("Stlacte 4: Pre ukoncenie\n");
+    printf("Stlacte 3: Pre ukoncenie\n");
 
     fgets(buf, BUFFER, stdin);
     game->menuSelect = buf[0];
 
     if (game->menuSelect == '1') {
 
-        // MODE
         do {
             printf("Stlacte 1: Standardny rezim\n");
             printf("Stlacte 2: Casovy rezim\n");
@@ -81,7 +76,6 @@ void show_menu(Game *game, char buf[]) {
             game->mode = buf[0];
         } while (game->mode != '1' && game->mode != '2');
 
-        // WORLD
         do {
             printf("Stlacte 1: Svet bez prekazok\n");
             printf("Stlacte 2: Svet s prekazkami\n");
@@ -89,11 +83,9 @@ void show_menu(Game *game, char buf[]) {
             game->world = buf[0];
         } while (game->world != '1' && game->world != '2');
 
-        // WIDTH & HEIGHT
         game->width  = read_int_range("Zadaj sirku sveta", 4, 15) + 2;
         game->height = read_int_range("Zadaj vysku sveta", 4, 15) + 2;
 
-        // TIME
         if (game->mode == '2') {
             game->time = read_int_range("Zadaj cas hry (sekundy)", 20, 180);
         }
@@ -169,38 +161,53 @@ void readData(Game *game, char buf[]){
         }else if (sscanf(line, "TIME %d", &game->gameTime)  == 1){
 
         } else if (sscanf(line, "OBJ %d", &game->obj)  == 1){
-            if (game->objects) free(game->objects);
-            game->objects = malloc(sizeof(Segment) * game->obj);
-            obj_i = 0;
+            if (game->objects) {
+              free(game->objects);
+              game->objects = NULL;
+            }
+            if(game->obj != 0){
+              game->objects = malloc(sizeof(Segment) * game->obj);
+              obj_i = 0;
+            }
+            
         } else if (line[0] == 'S'){
-            sscanf(line, "S %d %d", &game->snake[snake_i].x, &game->snake[snake_i++].y);
+            sscanf(line, "S %d %d", &game->snake[snake_i].x, &game->snake[snake_i].y);
+            snake_i++;
         }else if (line[0] == 'O') {
-            sscanf(line, "O %d %d", &game->objects[obj_i].x, &game->objects[obj_i++].y);
+            sscanf(line, "O %d %d", &game->objects[obj_i].x, &game->objects[obj_i].y);
+            obj_i++;
         } else if (strcmp(line, "GAMEOVER") == 0) {
             raw_off();
             game->running = 0;
+            if (game->objects) {        
+              free(game->objects);
+              game->objects = NULL;
+              game->obj = 0;
+            }
             game->showMenu = true;
             game->gameStat = GAME_STATE_GAMENOCREATE;
             printf("GAME OVER\n");
-        } else if (strcmp(line, "PAUSE") == 0) {
-            raw_off();
-            game->showMenu = true;
-            game->gameStat = GAME_STATE_PAUSED;
-            printf("[CLIENT DEBUG] received PAUSE from server\n");
+            printf("Pre pokracovanie stlacte ENTER\n");
         } else if (strcmp(line, "QUIT") == 0) {
             raw_off();
             game->running = 0;
+            if (game->objects) {          
+              free(game->objects);
+              game->objects = NULL;
+            }
             game->showMenu = true;
             game->gameStat = GAME_STATE_GAMENOCREATE;
-            printf("[CLIENT DEBUG] received QUIT from server\n");
+            printf("QUIT\n");
+            printf("Pre pokracovanie stlacte ENTER\n");
         } else if (strcmp(line, "TIMEOVER") == 0) {
             raw_off();
             game->running = 0;
             game->showMenu = true;
             game->gameStat = GAME_STATE_GAMENOCREATE;
-            printf("[CLIENT DEBUG] received TIMEOVER from server\n");
+            system("clear");
+            printf("TIMEOVER\n");
+            printf("Pre pokracovanie stlacte ENTER\n");
         }
         line = strtok(NULL, "\n");
     }
 }
-

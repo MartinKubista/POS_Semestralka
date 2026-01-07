@@ -26,10 +26,7 @@ typedef struct {
     int maxTime;
     bool inGame;
     bool gameCreate;
-    bool paused;
     bool end;
-    time_t pauseStart;
-    int pausedSeconds;
     time_t initTIme;
     int clientDisconnect;
 } Game;
