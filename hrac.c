@@ -8,23 +8,21 @@
 #include <termios.h>
 #include <fcntl.h>
 #include <stdbool.h>
+#include <errno.h>
 
-static struct termios oldt;
-static int oldf;
-
-void raw_on() {
+void raw_on(Game *game) {
     struct termios newt;
-    tcgetattr(STDIN_FILENO, &oldt);
-    newt = oldt;
+    tcgetattr(STDIN_FILENO, &game->oldt);
+    newt = game->oldt;
     newt.c_lflag &= ~(ICANON | ECHO);
     tcsetattr(STDIN_FILENO, TCSANOW, &newt); 
-    oldf = fcntl(STDIN_FILENO, F_GETFL);
-    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+    game->oldf = fcntl(STDIN_FILENO, F_GETFL);
+    fcntl(STDIN_FILENO, F_SETFL, game->oldf | O_NONBLOCK);
 }
 
-void raw_off() {
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-    fcntl(STDIN_FILENO, F_SETFL, oldf);
+void raw_off(Game *game) {
+    tcsetattr(STDIN_FILENO, TCSANOW, &game->oldt);
+    fcntl(STDIN_FILENO, F_SETFL, game->oldf);
 }
 
 int read_int_range(const char *prompt, int min, int max) {
@@ -177,7 +175,7 @@ void readData(Game *game, char buf[]){
             sscanf(line, "O %d %d", &game->objects[obj_i].x, &game->objects[obj_i].y);
             obj_i++;
         } else if (strcmp(line, "GAMEOVER") == 0) {
-            raw_off();
+            raw_off(game);
             game->running = 0;
             if (game->objects) {        
               free(game->objects);
@@ -189,7 +187,7 @@ void readData(Game *game, char buf[]){
             printf("GAME OVER\n");
             printf("Pre pokracovanie stlacte ENTER\n");
         } else if (strcmp(line, "QUIT") == 0) {
-            raw_off();
+            raw_off(game);
             game->running = 0;
             if (game->objects) {          
               free(game->objects);
@@ -200,7 +198,7 @@ void readData(Game *game, char buf[]){
             printf("QUIT\n");
             printf("Pre pokracovanie stlacte ENTER\n");
         } else if (strcmp(line, "TIMEOVER") == 0) {
-            raw_off();
+            raw_off(game);
             game->running = 0;
             game->showMenu = true;
             game->gameStat = GAME_STATE_GAMENOCREATE;

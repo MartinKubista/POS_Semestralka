@@ -137,7 +137,7 @@ int main() {
             return 0;
         }
     }
-    raw_on();
+    raw_on(&game);
 
     game.running = 1;
     pthread_create(&t_input, NULL, input_thread, &game);
@@ -161,7 +161,7 @@ int main() {
 
 
   }
-    raw_off();
+    raw_off(&game);
 
     if (game.objects) {
         free(game.objects);

@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include <pthread.h>
-#include <errno.h>
+#include <termios.h>
 
 #define PORT 13777
 #define BUFFER 2048
@@ -46,10 +46,13 @@ typedef struct {
     int socket_fd;
     int running;
     pthread_mutex_t lock;
+
+    struct termios oldt;
+    int oldf;
 } Game;
 
-void raw_on();
-void raw_off();
+void raw_on(Game *game);
+void raw_off(Game *game);
 
 void show_menu(Game *game, char buf[]);
 void initGame(Game *game);
