@@ -47,10 +47,17 @@ void* recv_thread(void* arg) {
         pthread_mutex_lock(&game->lock);
         readData(game, buf);
 
+        system("clear");
+
+        if(game->gameStat == GAME_STATE_PLAYING){
+            printGame(game);
+        }
+
         if (game->gameStat == GAME_STATE_CANCEL) {
             game->running = 0;
         }
         pthread_mutex_unlock(&game->lock);
+        usleep(16000); 
     }
     return NULL;
 }
@@ -142,19 +149,6 @@ int main() {
     game.running = 1;
     pthread_create(&t_input, NULL, input_thread, &game);
     pthread_create(&t_recv, NULL, recv_thread, &game);
-
-    while (game.running) {
-        pthread_mutex_lock(&game.lock);
-
-        system("clear");
-
-        if(game.gameStat == GAME_STATE_PLAYING){
-            printGame(&game);
-        }
-
-        pthread_mutex_unlock(&game.lock);
-        usleep(16000); 
-    }
 
     pthread_join(t_input, NULL);
     pthread_join(t_recv, NULL);
